@@ -1,6 +1,16 @@
 import asyncio
+import os
+from dotenv import load_dotenv
 from google import genai
 import pyaudio
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get API key from environment variable
+api_key = os.getenv('GEMINI_API_KEY')
+if not api_key:
+    raise ValueError("GEMINI_API_KEY not found in environment variables. Please set it in your .env file.")
 
 # --- pyaudio config ---
 FORMAT = pyaudio.paInt16
@@ -10,7 +20,7 @@ CHUNK_SIZE = 1024
 
 pya = pyaudio.PyAudio()
 
-client = genai.Client(api_key='your-api-key')
+client = genai.Client(api_key=api_key)
 MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 
 CONFIG = {
