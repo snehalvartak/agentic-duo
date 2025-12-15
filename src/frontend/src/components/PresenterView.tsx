@@ -51,6 +51,7 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [totalSlides, setTotalSlides] = useState(0);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -128,6 +129,18 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
       console.error(`Navigation error: ${e}`);
     }
   }, [getReveal, syncSlidePosition]);
+
+  // Request summary generation
+  const requestSummary = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setToast({ message: 'Voice control must be active to generate summary', type: 'error' });
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    setAiStatus('Generating summary...');
+    wsRef.current.send(JSON.stringify({ type: 'request_summary' }));
+  }, []);
 
 
 
@@ -220,6 +233,7 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
             if ('html' in message) {
               injectSummary(message.html);
               setAiStatus('Summary Injected');
+              setIsGeneratingSummary(false);
               setTimeout(() => setDetectedIntent(null), 5000);
             }
             break;
@@ -432,12 +446,12 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
             </button>
           </div>
 
-          {/* 2. Live Transcript */}
+          {/* 2. AI Response */}
           <div className="control-section transcript-section">
-            <h3>Live Transcript</h3>
+            <h3>AI Response</h3>
             <div className="transcript-box">
               {transcript.length === 0 ? (
-                <div className="transcript-placeholder">Speak to see transcript...</div>
+                <div className="transcript-placeholder">AI responses will appear here...</div>
               ) : (
                 transcript.map((text, i) => (
                   <div key={i} className="transcript-line">"{text}"</div>
@@ -489,8 +503,13 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
               <button className="control-btn disabled" title="Coming Soon">
                 <ImageIcon size={16} /> Inject
               </button>
-              <button className="control-btn disabled" title="Coming Soon">
-                <FileText size={16} /> Summary
+              <button 
+                className={`control-btn ${isGeneratingSummary ? 'loading' : ''}`}
+                onClick={requestSummary}
+                disabled={isGeneratingSummary}
+                title={isGeneratingSummary ? 'Generating...' : 'Generate presentation summary'}
+              >
+                <FileText size={16} /> {isGeneratingSummary ? 'Generating...' : 'Summary'}
               </button>
             </div>
           </div>

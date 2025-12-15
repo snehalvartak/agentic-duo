@@ -317,6 +317,12 @@ async def websocket_endpoint(
             await state_manager.set_current_slide(current)
             logger.debug(f"Slide synced: {current + 1}", extra={"session_id": session_id})
             
+        elif msg_type == "request_summary":
+            # Manual summary request from frontend
+            logger.info("Manual summary requested", extra={"session_id": session_id})
+            await safe_send_json({"type": "status", "message": "Generating summary..."})
+            asyncio.create_task(run_background_summary(""))
+            
         else:
             logger.debug(f"Unknown message type: {msg_type}", extra={"session_id": session_id})
 
