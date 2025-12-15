@@ -46,16 +46,6 @@ async def lifespan(app: FastAPI):
 
     config.SLIDES_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Create symbolic link to mermaid in static slides
-    mermaid_src = Path("node_modules/mermaid")
-    mermaid_dest = config.SLIDES_DIR / "mermaid"
-
-    if mermaid_src.exists() and not mermaid_dest.exists():
-        mermaid_dest.symlink_to(mermaid_src.resolve(), target_is_directory=True)
-        logger.info("Created symbolic link to mermaid")
-    elif not mermaid_src.exists():
-        logger.warning("mermaid node_module not found, skipping symlink")
-
     yield
 
     # Cleanup on shutdown
@@ -203,15 +193,24 @@ async def upload_slides(file: UploadFile = File(...)):
         else:
             # Create a temporary directory in the slides directory (mostly for debugging purposes)
             temp_dir = tempfile.mkdtemp(dir=config.SLIDES_DIR, prefix="reveal-md-")
-            
 
         # Run reveal-md to generate static site
         command = ["npx", "-y", "reveal-md", str(file_path), "--static", temp_dir]
         result = subprocess.run(command, capture_output=True, text=True, check=True)
 
-        logger.debug(f"reveal-md stdout: {result.stdout}")
+        # Create symbolic link to mermaid in static slides
+        mermaid_src = config.BASE_DIR / "node_modules" / "mermaid"
+        mermaid_dest = Path(temp_dir) / "mermaid"
+
+        if mermaid_src.exists() and not mermaid_dest.exists():
+            mermaid_dest.symlink_to(mermaid_src.resolve(), target_is_directory=True)
+            logger.info("Created symbolic link to mermaid")
+        elif not mermaid_src.exists():
+            logger.warning("mermaid node_module not found, skipping symlink")
+
+        logger.debug(f"reveal-md stdout: \n{result.stdout}")
         if result.stderr:
-            logger.debug(f"reveal-md stderr: {result.stderr}")
+            logger.debug(f"reveal-md stderr: \n{result.stderr}")
 
         relative_path = Path(temp_dir).name
         logger.info(f"Conversion complete: {relative_path}")
@@ -337,17 +336,19 @@ async def websocket_endpoint(
             while is_connected:
                 message = await websocket.receive()
                 
-                if message["type"] == "websocket.receive":
-                    if "bytes" in message:
-                        # Audio data
-                        await audio_processor.push_audio(message["bytes"])
-                    elif "text" in message:
-                        # JSON message from frontend
-                        try:
-                            data = json.loads(message["text"])
-                            await handle_frontend_message(data)
-                        except json.JSONDecodeError:
-                            logger.warning("Invalid JSON received", extra={"session_id": session_id})
+                if message["type"] != "websocket.receive":
+                    continue
+
+                if "bytes" in message:
+                    # Audio data
+                    await audio_processor.push_audio(message["bytes"])
+                elif "text" in message:
+                    # JSON message from frontend
+                    try:
+                        data = json.loads(message["text"])
+                        await handle_frontend_message(data)
+                    except json.JSONDecodeError:
+                        logger.warning("Invalid JSON received", extra={"session_id": session_id})
                             
         except WebSocketDisconnect:
             logger.info("WebSocket disconnected", extra={"session_id": session_id})
