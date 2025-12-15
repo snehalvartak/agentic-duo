@@ -133,16 +133,17 @@ class SlideTools:
                 "error": str(e)
             }
 
-    async def trigger_summary(self) -> dict[str, Any]:
+    async def trigger_summary(self, conversational_context: str = "") -> dict[str, Any]:
         """
         Trigger the background summary generation process.
         
-        Returns:
-            Dict signaling the backend to start the task.
+        Args:
+            conversational_context: Notes from the live model about what the speaker said.
         """
         logger.info("Triggering background summary generation")
         return {
             "action": "start_background_summary",
+            "conversational_context": conversational_context,
             "success": True,
             "message": "Summary generation started in background."
         }

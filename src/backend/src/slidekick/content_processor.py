@@ -94,7 +94,9 @@ class ContentProcessor:
             
             if response.text:
                 logger.info("Live summary generated successfully.")
-                return response.text
+                # Clean up potential markdown code blocks
+                clean_text = response.text.replace("```html", "").replace("```", "").strip()
+                return clean_text
             else:
                 return "Could not generate summary."
         except Exception as e:

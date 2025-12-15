@@ -144,7 +144,13 @@ def create_session_components() -> tuple[ToolExecutor, StateManager, SlideTools]
             description="Trigger the background generation of a presentation summary.",
             parameters=genai_types.Schema(
                 type=genai_types.Type.OBJECT,
-                properties={},
+                properties={
+                    "conversational_context": genai_types.Schema(
+                        type=genai_types.Type.STRING,
+                        description="A detailed summary of what the SPEAKER has said during the presentation so far. Be comprehensive.",
+                    ),
+                },
+                required=["conversational_context"],
             ),
         ),
     )
@@ -429,16 +435,28 @@ async def websocket_endpoint(
         finally:
             is_connected = False
 
-    async def run_background_summary():
+    async def run_background_summary(context_from_live_session: str = ""):
         """Backend task to generate and inject summary asynchronously."""
         try:
             logger.info("Starting background summary generation...", extra={"session_id": session_id})
-            transcript = await state_manager.get_transcript()
+            
+            # Combine sourced transcripts. 
+            # If we have live context, it's prioritized as it contains the "hearing" of the model.
+            transcript_buffer = await state_manager.get_transcript()
+            
+            full_transcript_context = f"""
+            [Live Model Memory (Speaker's Words)]:
+            {context_from_live_session}
+            
+            [System Log (AI Responses)]:
+            {transcript_buffer}
+            """
+            
             slide_context = LATEST_SLIDE_SUMMARY or "No slide content available."
             
             # Create a fresh processor instance
             processor = ContentProcessor()
-            summary_text = await processor.generate_presentation_summary(transcript, slide_context)
+            summary_text = await processor.generate_presentation_summary(full_transcript_context, slide_context)
             
             if not summary_text or "Error" in summary_text:
                 logger.warning("Summary generation returned empty or error", extra={"session_id": session_id})
@@ -511,8 +529,12 @@ async def websocket_endpoint(
                             })
                         elif name == "trigger_summary" or res_data.get("action") == "start_background_summary":
                             logger.info(f"✓ Summary Triggered (Async)", extra={"session_id": session_id})
-                            # Launch background task
-                            asyncio.create_task(run_background_summary())
+                            
+                            # Extract context from tool args via the result data (since we passed it through)
+                            context = res_data.get("conversational_context", "")
+                            
+                            # Launch background task with the context
+                            asyncio.create_task(run_background_summary(context))
                             
                             await safe_send_json({
                                 "type": "tool_result",
