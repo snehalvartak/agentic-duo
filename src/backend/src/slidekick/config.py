@@ -51,6 +51,8 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 SLIDES_DIR = PUBLIC_DIR / "slides"
 
+USE_TEMP_DIR = bool(os.getenv("USE_TEMP_DIR", 0))
+
 """ Logging Configuration """
 
 LOG_DIR = BASE_DIR / 'logs'

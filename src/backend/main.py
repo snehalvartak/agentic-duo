@@ -165,7 +165,10 @@ async def upload_slides(file: UploadFile = File(...)):
         logger.info(f"Saved {file.filename}, size: {file_path.stat().st_size} bytes")
 
         # Create temp directory for reveal-md output
-        temp_dir = tempfile.mkdtemp(dir=config.SLIDES_DIR, prefix="reveal-md-")
+        if not config.USE_TEMP_DIR:
+            temp_dir = tempfile.mkdtemp(dir=config.SLIDES_DIR, prefix="reveal-md-")
+        else:
+            temp_dir = tempfile.mkdtemp(prefix="reveal-md-")
 
         # Run reveal-md to generate static site
         command = ["npx", "reveal-md", str(file_path), "--static", temp_dir]
