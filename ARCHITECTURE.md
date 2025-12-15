@@ -173,7 +173,7 @@ The frontend provides real-time visual feedback through WebSocket messages sent 
 | `slide_command` | Navigation result (triggers UI update) |
 | Audio bytes | Gemini's spoken response (24kHz PCM) |
 
-#### What Gets Logged and Why
+#### What Gets Logged and Why?
 
 We log **agent decisions and state transitions**, not raw data:
 
@@ -199,52 +199,27 @@ We log **agent decisions and state transitions**, not raw data:
 - **Gemini errors:** Connection failures sent to frontend as `status` message
 - **Audio overflow:** Queue drops oldest chunks to prevent memory issues (logged as warning)
 
-## Data Flow
+> See [EXPLANATION.md](EXPLANATION.md) for testing instructions and how to trace agent decisions.
+
+## Data Flow (Summary)
 
 ```
-1. User speaks: "Next slide please"
-         │
-         ▼
-2. Browser captures audio (16kHz PCM via AudioWorklet)
-         │
-         ▼
-3. WebSocket sends audio bytes to FastAPI backend
-         │
-         ▼
-4. AudioProcessor queues audio chunks
-         │
-         ▼
-5. Audio forwarded to Gemini Live API session
-         │
-         ▼
-6. Gemini returns: tool_call(navigate_slide, {direction: "next"})
-         │
-         ▼
-7. ToolExecutor executes SlideTools.navigate_slide()
-         │
-         ▼
-8. StateManager updates current_slide
-         │
-         ▼
-9. WebSocket sends JSON: {type: "slide_command", action: "next", slide_index: 1}
-         │
-         ▼
-10. Frontend calls Reveal.next() to navigate slides
-         │
-         ▼
-11. Gemini audio response played through browser speakers
+User speaks → Browser captures audio → WebSocket streams to Backend
+                                              │
+                                              ▼
+                              Gemini Live API (intent recognition)
+                                              │
+                                              ▼
+                              Tool execution → Frontend navigation
 ```
 
-## Innovative Gemini Integration
+1. **Capture:** Browser records audio via AudioWorklet, streams over WebSocket
+2. **Process:** Backend queues audio, forwards to Gemini Live API
+3. **Decide:** Gemini recognizes intent, returns `tool_call` if command detected
+4. **Execute:** ToolExecutor runs the tool, updates StateManager
+5. **Respond:** Frontend receives command, navigates slides; Gemini speaks confirmation
 
-Slidekick leverages **Gemini Live API** (gemini-2.5-flash-native-audio-preview) for:
-
-1. **Real-time Speech Understanding:** No separate STT step—audio streams directly to Gemini
-2. **Native Function Calling:** Gemini determines intent and calls `navigate_slide` with correct parameters
-3. **Contextual Awareness:** System instruction guides Gemini to distinguish commands from content discussion
-4. **Bidirectional Audio:** Gemini can respond with synthesized speech confirming actions
-
-This creates a seamless, conversational presentation experience where the AI acts as an invisible co-pilot.
+> See [EXPLANATION.md](EXPLANATION.md) for detailed step-by-step agent workflow.
 
 ## Why This Architecture?
 
