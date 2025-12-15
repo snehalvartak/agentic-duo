@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Mic, MicOff, Volume2, SkipBack, SkipForward, Image as ImageIcon, FileText } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 import { WebSocketMessage } from '../types/websocket';
+import { Toast } from './Toast';
 
 interface PresenterViewProps {
   slideUrl: string;
@@ -40,12 +42,13 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Click to start voice control');
-  
+
   // New state variables
   const [transcript, setTranscript] = useState<string[]>([]);
   const [aiStatus, setAiStatus] = useState<string>('Ready');
   const [detectedIntent, setDetectedIntent] = useState<{ tool: string; args: Record<string, unknown> } | null>(null);
-  
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
   const [currentSlide, setCurrentSlide] = useState(0);
   const [totalSlides, setTotalSlides] = useState(0);
 
@@ -126,6 +129,53 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
     }
   }, [getReveal, syncSlidePosition]);
 
+
+
+  // Inject summary slide
+  const injectSummary = useCallback((html: string) => {
+    if (!iframeRef.current?.contentDocument) {
+      console.warn('injectSummary: contentDocument not available');
+      return;
+    }
+
+    try {
+      console.debug('injectSummary: Starting injection');
+      const doc = iframeRef.current.contentDocument;
+      const slidesContainer = doc.querySelector('.reveal .slides');
+
+      if (slidesContainer) {
+        const section = doc.createElement('section');
+        section.innerHTML = html;
+        slidesContainer.appendChild(section);
+        console.debug('injectSummary: Slide appended to DOM');
+
+        const Reveal = getReveal();
+        if (Reveal) {
+          Reveal.sync();
+          // Jump to the new last slide
+          Reveal.slide(Reveal.getTotalSlides() - 1);
+
+          // Update local state
+          setTotalSlides(Reveal.getTotalSlides());
+          setCurrentSlide(Reveal.getIndices().h);
+          console.debug('injectSummary: Reveal synced and navigated');
+
+          // Show Success Toast
+          setToast({ message: 'Summary slide generated and injected!', type: 'success' });
+        } else {
+          console.error('injectSummary: Reveal instance not found after DOM update');
+          setToast({ message: 'Summary generated but layout update failed.', type: 'error' });
+        }
+      } else {
+        console.error('injectSummary: .reveal .slides container not found');
+        setToast({ message: 'Failed to find slides container.', type: 'error' });
+      }
+    } catch (e) {
+      console.error('injectSummary failed:', e);
+      setToast({ message: 'Summary injection failed.', type: 'error' });
+    }
+  }, [getReveal]);
+
   // Handle WebSocket messages
   const handleWebSocketMessage = useCallback(async (event: MessageEvent) => {
     if (event.data instanceof Blob) {
@@ -135,7 +185,7 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
     } else {
       try {
         const message = JSON.parse(event.data) as WebSocketMessage;
-        
+
         switch (message.type) {
           case 'status':
             setStatusMessage(message.message);
@@ -156,11 +206,22 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
           case 'tool_result':
             setAiStatus(`Tool complete: ${message.status}`);
             setTimeout(() => setDetectedIntent(null), 3000);
+            if (message.status === 'error') {
+              setToast({ message: `Action failed: ${message.tool}`, type: 'error' });
+            }
             break;
 
           case 'transcript':
             setTranscript(prev => [...prev.slice(-19), message.text]);
             setAiStatus('Processing speech...');
+            break;
+
+          case 'inject_summary':
+            if ('html' in message) {
+              injectSummary(message.html);
+              setAiStatus('Summary Injected');
+              setTimeout(() => setDetectedIntent(null), 5000);
+            }
             break;
 
           default:
@@ -170,7 +231,7 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
         console.error('Error parsing message:', e);
       }
     }
-  }, [navigateSlide]);
+  }, [navigateSlide, injectSummary]);
 
   // Play audio from Gemini
   const playAudio = (audioData: ArrayBuffer) => {
@@ -328,6 +389,16 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
 
   return (
     <div className="presenter-view">
+      <AnimatePresence>
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </AnimatePresence>
+
       <div className="presenter-dashboard">
         <div className="dashboard-header">
           <h2>Presenter Dashboard</h2>
@@ -338,19 +409,19 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
           {/* 1. Voice Control / Listening Status */}
           <div className="control-section listening-section">
             <div className="status-row">
-                {isRecording ? (
-                    <>
-                        <Volume2 className="pulse" size={20} color="#4caf50" />
-                        <span className="listening-text">LISTENING...</span>
-                        <div className="audio-visualizer">
-                            {[...Array(8)].map((_, i) => (
-                                <div key={i} className="bar" style={{ animationDelay: `${i * 0.1}s` }} />
-                            ))}
-                        </div>
-                    </>
-                ) : (
-                    <span className="status-text">{statusMessage}</span>
-                )}
+              {isRecording ? (
+                <>
+                  <Volume2 className="pulse" size={20} color="#4caf50" />
+                  <span className="listening-text">LISTENING...</span>
+                  <div className="audio-visualizer">
+                    {[...Array(8)].map((_, i) => (
+                      <div key={i} className="bar" style={{ animationDelay: `${i * 0.1}s` }} />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <span className="status-text">{statusMessage}</span>
+              )}
             </div>
             <button
               className={`voice-btn ${isRecording ? 'recording' : ''}`}
@@ -380,8 +451,8 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
           <div className="control-section ai-status-section">
             <h3>AI Status</h3>
             <div className="ai-status-indicator">
-                <div className={`status-dot ${aiStatus !== 'Ready' ? 'active' : ''}`} />
-                <span>{aiStatus}</span>
+              <div className={`status-dot ${aiStatus !== 'Ready' ? 'active' : ''}`} />
+              <span>{aiStatus}</span>
             </div>
           </div>
 
@@ -389,38 +460,38 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
           <div className="control-section intent-section">
             <h3>Detected Intent</h3>
             {detectedIntent ? (
-                <div className="intent-card">
-                    <div className="intent-tool">→ {detectedIntent.tool}</div>
-                    <div className="intent-args">
-                        {JSON.stringify(detectedIntent.args, null, 2)}
-                    </div>
+              <div className="intent-card">
+                <div className="intent-tool">→ {detectedIntent.tool}</div>
+                <div className="intent-args">
+                  {JSON.stringify(detectedIntent.args, null, 2)}
                 </div>
+              </div>
             ) : (
-                <div className="intent-placeholder">Waiting for command...</div>
+              <div className="intent-placeholder">Waiting for command...</div>
             )}
           </div>
 
           {/* 5. Manual Controls */}
           <div className="control-section manual-controls">
             <h3>Manual Controls</h3>
-            
+
             <div className="slide-info-text">
-                Slide {currentSlide + 1} of {totalSlides || '?'}
+              Slide {currentSlide + 1} of {totalSlides || '?'}
             </div>
 
             <div className="control-grid">
-                <button className="control-btn" onClick={() => navigateSlide('prev')}>
-                    <SkipBack size={16} /> Prev
-                </button>
-                <button className="control-btn" onClick={() => navigateSlide('next')}>
-                    Next <SkipForward size={16} />
-                </button>
-                <button className="control-btn disabled" title="Coming Soon">
-                    <ImageIcon size={16} /> Inject
-                </button>
-                <button className="control-btn disabled" title="Coming Soon">
-                    <FileText size={16} /> Summary
-                </button>
+              <button className="control-btn" onClick={() => navigateSlide('prev')}>
+                <SkipBack size={16} /> Prev
+              </button>
+              <button className="control-btn" onClick={() => navigateSlide('next')}>
+                Next <SkipForward size={16} />
+              </button>
+              <button className="control-btn disabled" title="Coming Soon">
+                <ImageIcon size={16} /> Inject
+              </button>
+              <button className="control-btn disabled" title="Coming Soon">
+                <FileText size={16} /> Summary
+              </button>
             </div>
           </div>
         </div>

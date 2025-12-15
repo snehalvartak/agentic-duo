@@ -46,6 +46,7 @@ class StateManager:
             "started_at": datetime.now(),
             "session_id": None,
         }
+        self.transcript_history: list[str] = []
         self._lock = asyncio.Lock()
         logger.debug(f"StateManager initialized with {total_slides} slides")
     
@@ -144,9 +145,27 @@ class StateManager:
         """Reset state to initial values."""
         async with self._lock:
             self.current_slide = 0
+            self.transcript_history = []
             self.session_metadata = {
                 "started_at": datetime.now(),
                 "session_id": None,
             }
             logger.debug("StateManager reset")
+
+    async def add_transcript(self, text: str) -> None:
+        """Add a line of transcript to history."""
+        async with self._lock:
+            if not hasattr(self, 'transcript_history'):
+                self.transcript_history = []
+            self.transcript_history.append(text)
+            # Keep last 100 lines to avoid memory growing indefinitely if long session
+            if len(self.transcript_history) > 100:
+                self.transcript_history = self.transcript_history[-100:]
+
+    async def get_transcript(self) -> str:
+        """Get full transcript as a single string."""
+        async with self._lock:
+            if not hasattr(self, 'transcript_history'):
+                return ""
+            return "\n".join(self.transcript_history)
 
