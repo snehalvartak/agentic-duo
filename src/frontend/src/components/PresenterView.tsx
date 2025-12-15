@@ -1,8 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Mic, MicOff, Volume2, SkipBack, SkipForward, Image as ImageIcon, FileText } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
 import { WebSocketMessage } from '../types/websocket';
-import { Toast } from './Toast';
 
 interface PresenterViewProps {
   slideUrl: string;
@@ -47,7 +45,6 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
   const [transcript, setTranscript] = useState<string[]>([]);
   const [aiStatus, setAiStatus] = useState<string>('Ready');
   const [detectedIntent, setDetectedIntent] = useState<{ tool: string; args: Record<string, unknown> } | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [totalSlides, setTotalSlides] = useState(0);
@@ -133,7 +130,7 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
   // Request summary generation
   const requestSummary = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setToast({ message: 'Voice control must be active to generate summary', type: 'error' });
+      setAiStatus('Error: Voice control must be active');
       return;
     }
 
@@ -172,20 +169,14 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
           setTotalSlides(Reveal.getTotalSlides());
           setCurrentSlide(Reveal.getIndices().h);
           console.debug('injectSummary: Reveal synced and navigated');
-
-          // Show Success Toast
-          setToast({ message: 'Summary slide generated and injected!', type: 'success' });
         } else {
           console.error('injectSummary: Reveal instance not found after DOM update');
-          setToast({ message: 'Summary generated but layout update failed.', type: 'error' });
         }
       } else {
         console.error('injectSummary: .reveal .slides container not found');
-        setToast({ message: 'Failed to find slides container.', type: 'error' });
       }
     } catch (e) {
       console.error('injectSummary failed:', e);
-      setToast({ message: 'Summary injection failed.', type: 'error' });
     }
   }, [getReveal]);
 
@@ -219,9 +210,6 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
           case 'tool_result':
             setAiStatus(`Tool complete: ${message.status}`);
             setTimeout(() => setDetectedIntent(null), 3000);
-            if (message.status === 'error') {
-              setToast({ message: `Action failed: ${message.tool}`, type: 'error' });
-            }
             break;
 
           case 'transcript':
@@ -403,16 +391,6 @@ export const PresenterView: React.FC<PresenterViewProps> = ({ slideUrl, onExit }
 
   return (
     <div className="presenter-view">
-      <AnimatePresence>
-        {toast && (
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            onClose={() => setToast(null)}
-          />
-        )}
-      </AnimatePresence>
-
       <div className="presenter-dashboard">
         <div className="dashboard-header">
           <h2>Presenter Dashboard</h2>
