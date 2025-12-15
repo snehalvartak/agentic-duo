@@ -411,9 +411,11 @@ async def websocket_endpoint(
                         if hasattr(response, "tool_call") and response.tool_call:
                             await process_tool_calls(response.tool_call)
 
-                        # Forward audio from Gemini to frontend
-                        if hasattr(response, "data") and response.data:
-                            await safe_send_bytes(response.data)
+                        # NOTE: Audio forwarding disabled - Gemini voice confirmations were distracting
+                        # We keep response_modalities=["AUDIO"] to avoid WebSocket errors,
+                        # but don't send the audio to the frontend
+                        # if hasattr(response, "data") and response.data:
+                        #     await safe_send_bytes(response.data)
 
                         # Log text responses and capture transcript
                         if response.server_content and response.server_content.model_turn:
