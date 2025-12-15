@@ -1,12 +1,18 @@
-# Agentic Duo Backend
+# Slidekick Backend
 
-FastAPI backend for the Gemini Live Joke Assistant.
+FastAPI backend for  **Slidekick** - Your A.I Presentation Companion
+
+## Summary
+
+The Slidekick backend provides a WebSocket-based API that processes real-time audio streams using the Gemini Live API. It handles voice commands for slide navigation, converts markdown files to Reveal.js presentations, and serves static presentation files. The backend integrates with Gemini's tool calling capabilities to execute commands like navigating slides, generating content, and managing presentation state.
 
 ## Features
 
 - WebSocket endpoint for real-time audio streaming
 - Gemini Live API integration for voice processing
-- Tool calling for joke detection and generation
+- Tool calling for slide navigation and presentation control
+- Markdown to Reveal.js presentation conversion
+- Static file serving for generated presentations
 - Audio response forwarding
 
 ## Setup
@@ -24,7 +30,7 @@ FastAPI backend for the Gemini Live Joke Assistant.
 uv sync
 ```
 
-Note: When using `uv run`, you don't need to activate the virtual environment manually. The `uv run` command automatically uses the project's virtual environment.
+> Note: When using `uv run`, you don't need to activate the virtual environment manually. The `uv run` command automatically uses the project's virtual environment.
 
 ### Environment Variables
 
@@ -42,29 +48,3 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 source .venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-## API Endpoints
-
-### WebSocket `/ws`
-
-Real-time audio streaming endpoint. Accepts PCM audio data and returns:
-- Audio responses from Gemini
-- JSON messages with jokes when detected
-
-### GET `/health`
-
-Health check endpoint.
-
-## Architecture
-
-```
-Frontend (React) <--WebSocket--> FastAPI <--Live API--> Gemini
-                                    |
-                                    +--> generate_joke tool
-```
-
-When Gemini detects a joke request, it calls the `generate_joke` tool, which:
-1. Generates a joke using the Gemini API
-2. Sends the joke to the frontend as a JSON message
-3. Returns the result to Gemini for acknowledgment
-
