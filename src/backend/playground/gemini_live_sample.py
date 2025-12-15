@@ -1,9 +1,10 @@
 import asyncio
 import os
+
+import pyaudio
 from dotenv import load_dotenv
 from google import genai
 from google.genai.types import ThinkingConfig
-import pyaudio
 
 # Load environment variables from .env file
 load_dotenv()
@@ -34,9 +35,9 @@ CONFIG = {
     )
 }
 
-text_queue = asyncio.Queue()
-audio_queue_mic = asyncio.Queue(maxsize=5)
-audio_stream = None
+text_queue: asyncio.Queue[str] = asyncio.Queue()
+audio_queue_mic: asyncio.Queue[dict[str, bytes]] = asyncio.Queue(maxsize=5)
+audio_stream: pyaudio.Stream | None = None
 
 async def listen_audio():
     """Listens for audio and puts it into the mic audio queue."""

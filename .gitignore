@@ -1,8 +1,8 @@
 **/.env
-src/backend/.venv
 .DS_Store
 **/__pycache__
 .venv/
+venv/
 node_modules
 src/backend/public/uploads/*
 !src/backend/public/uploads/.gitkeep

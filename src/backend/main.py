@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup/shutdown."""
-    logger.info("Starting Agentic Slide Deck server")
+    logger.info("Starting Slidekick server")
+
+    config.SLIDES_DIR.mkdir(parents=True, exist_ok=True)
 
     # Create symbolic link to mermaid in static slides
     mermaid_src = Path("node_modules/mermaid")
@@ -71,7 +73,6 @@ app.add_middleware(
 )
 
 # Mount static files for the generated slides
-config.SLIDES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/slides", StaticFiles(directory=config.SLIDES_DIR, html=True), name="slides")
 
 
@@ -165,7 +166,13 @@ async def upload_slides(file: UploadFile = File(...)):
         logger.info(f"Saved {file.filename}, size: {file_path.stat().st_size} bytes")
 
         # Create temp directory for reveal-md output
-        temp_dir = tempfile.mkdtemp(dir=config.SLIDES_DIR, prefix="reveal-md-")
+        if config.USE_TEMP_DIR:
+            # Create a random temporary directory
+            temp_dir = tempfile.mkdtemp(prefix="reveal-md-")
+        else:
+            # Create a temporary directory in the slides directory (mostly for debugging purposes)
+            temp_dir = tempfile.mkdtemp(dir=config.SLIDES_DIR, prefix="reveal-md-")
+            
 
         # Run reveal-md to generate static site
         command = ["npx", "reveal-md", str(file_path), "--static", temp_dir]
