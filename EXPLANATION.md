@@ -82,8 +82,37 @@ When the presenter says "Next slide please":
 ```
 
 **Key insight:** Steps 4-6 happen inside Gemini's processing. There's no explicit "planning" step—Gemini's model directly maps speech to function calls based on the system instruction.
+    
+### Summary Generation Workflow (Async Pattern)
+
+When the user says "Summarize what I've said so far":
+
+```
+┌───────────────────────────┐         ┌──────────────────────────────────────────────┐
+│  Gemini Live API          │         │  Backend (FastAPI)                           │
+│  (Planner)                │         │  (Coordinator)                               │
+│                           │         │                                              │
+│  1. Detects "summarize"   │         │                                              │
+│  2. Calls trigger_summary │────────►│  1. Receives tool call                       │
+│     (context="...")       │         │  2. Returns "started" immediately            │
+│                           │◄────────│     (Non-blocking)                           │
+└───────────────────────────┘         │                                              │
+            ▲                         │  3. Spawns Background Task                   │
+            │                         │     │                                        │
+            │                         │     ▼                                        │
+┌───────────────────────────┐         │  ┌─────────────────────────────────────┐     │
+│  Frontend (React)         │         │  │ ContentProcessor                    │     │
+│                           │         │  │ (using gemini-2.0-flash-exp)        │     │
+│  1. Receives "Summary     │◄──JSON──│  │ 1. Fetches full transcript          │     │
+│     ready" event          │         │  │ 2. Synthesizes with slide context   │     │
+│  2. Renders new slide     │         │  │ 3. Generates HTML summary slide     │     │
+└───────────────────────────┘         └──────────────────────────────────────────────┘
+```
+
+This **two-model architecture** avoids blocking the real-time voice loop. The lightweight `trigger_summary` tool hands off the heavy lifting to a background process using a stronger static model (`gemini-2.0-flash-exp`).
 
 ## 2. Key Modules
+
 
 Mapping Slidekick's modules to agentic roles (see [ARCHITECTURE.md](ARCHITECTURE.md) for implementation details):
 
@@ -129,15 +158,23 @@ The system instruction in `config.py` shapes how Gemini behaves:
 ```
 You are an AI presentation assistant controlling a slide deck.
 
+AVAILABLE TOOLS:
+1. `navigate_slide(direction, index)`
+2. `trigger_summary(conversational_context)`
+...
+
 RULES:
-- Execute commands immediately when asked.
-- If the user just talks about the topic, DO NOT call tools.
-- Only call tools for COMMANDS (e.g. "Next slide", "Go to slide 5").
-- If unsure, do nothing (don't interrupt the flow).
+- Action over words! Call tools IMMEDIATELY when asked.
+- When asked to "summarize":
+  1. Think about what the SPEAKER has said so far.
+  2. Call `trigger_summary` with a detailed summary of points.
+  3. Tell the user you started the summary.
+  4. Do NOT stay silent.
 ```
 
 This instruction is critical—it teaches Gemini to distinguish between:
 - **Commands:** "Next slide" → call `navigate_slide`
+- **Complex Tasks:** "Summarize this" → call `trigger_summary` (handoff)
 - **Content:** "Let me explain this chart..." → stay silent
 
 ### Bidirectional Audio
@@ -243,7 +280,7 @@ Being honest about edge cases and bottlenecks:
 | **Ambient noise** | May trigger false positives or miss commands in noisy environments | Add wake word detection, noise filtering |
 | **Single command at a time** | Can't chain commands ("skip three slides") | Future: parse compound commands |
 | **English only** | System instruction and testing focused on English | Localize prompts, test with other languages |
-| **No content awareness** | Agent navigates but doesn't understand slide content | Future: inject slide text into context |
+| **Limited content awareness** | Agent has summary context but full detailed slide content is outside context window | Future: RAG or larger context window injection |
 | **Browser-only audio** | Requires browser with Web Audio API support | Provide fallback or native app option |
 
 ## 7. Societal Impact and Novelty
