@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": ".",
+			"name": "__root__"
+		},
+		{
+			"path": "src/backend",
+			"name": "backend"
+		},
+		{
+			"path": "src/frontend",
+			"name": "frontend"
+		}
+	],
+	"settings": {
+		"ruff.configuration": "${workspaceFolder:backend}/pyproject.toml",
+	}
+}

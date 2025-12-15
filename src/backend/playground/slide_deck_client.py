@@ -16,25 +16,18 @@ import os
 import sys
 import json
 from datetime import datetime
-from dotenv import load_dotenv
 from google import genai
 from google.genai.types import FunctionDeclaration, Schema, Type
 
 # Import modular components
-from audio_processor import AudioProcessor
-from tool_executor import ToolExecutor
-from state_manager import StateManager
-from slide_tools import SlideTools
+from slidekick.audio_processor import AudioProcessor
+from slidekick.tool_executor import ToolExecutor
+from slidekick.state_manager import StateManager
+from slidekick.slide_tools import SlideTools
+import slidekick.config as config
 
-# Load environment variables
-load_dotenv()
 
-# Get API key
-api_key = os.getenv('GEMINI_API_KEY')
-if not api_key:
-    raise ValueError("GEMINI_API_KEY not found in environment variables.")
-
-client = genai.Client(api_key=api_key)
+client = genai.Client(api_key=config.GEMINI_API_KEY)
 
 # Configuration
 MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
@@ -138,7 +131,7 @@ async def handle_responses(session, tool_executor: ToolExecutor):
                                         await safe_print(f"  ✓ Navigated to Slide {slide_idx + 1}")
                                     elif name == "add_content":
                                         await safe_print(f"  ✓ Added content: '{res_data.get('content')}'")
-                                except:
+                                except Exception:
                                     pass
 
                         if function_responses:
@@ -171,7 +164,7 @@ async def run():
     print("Initializing Agentic Slide Deck Client...")
     
     # 1. Initialize Components
-    audio = AudioProcessor()
+    audio = AudioProcessor.from_pyaudio()  # Use factory method for local microphone
     state = StateManager(total_slides=10) # Simulating 10 slides
     tools = SlideTools(state)
     executor = ToolExecutor(verbose=False)
@@ -184,7 +177,8 @@ async def run():
         if direction == "jump" and index is not None:
             # Convert 1-based (User/LLM) to 0-based (Backend)
             backend_index = index - 1
-            if backend_index < 0: backend_index = 0
+            if backend_index < 0:
+                backend_index = 0
             return await tools.navigate_slide(direction, backend_index)
         return await tools.navigate_slide(direction, index)
 
@@ -305,8 +299,11 @@ async def run():
             tg.create_task(handle_responses(session, executor))
             tg.create_task(print_queue_consumer())
 
-if __name__ == "__main__":
+def main():
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
         print("\nStopped.")
+
+if __name__ == "__main__":
+    main()

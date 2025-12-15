@@ -1,102 +1,70 @@
-# Backend
+# Agentic Duo Backend
 
-## 🚀 Getting Started
+FastAPI backend for the Gemini Live Joke Assistant.
 
-1. **Set up environment variables:**
-   - Create a `.env` file in this directory (`src/backend/`)
-   - Add your Gemini API key:
-     ```
-     GEMINI_API_KEY=your_api_key_here
-     ```
+## Features
 
-2. **Install dependencies:**
-   ```bash
-   cd src/backend
-   uv sync
-   ```
+- WebSocket endpoint for real-time audio streaming
+- Gemini Live API integration for voice processing
+- Tool calling for joke detection and generation
+- Audio response forwarding
 
-## 🎤 Interactive Slide Deck Client (New!)
+## Setup
 
-This is the main client that allows you to control the slide deck simulation with your voice, using the modular backend architecture.
+### Prerequisites
 
-### Usage
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
+- Gemini API key
 
-Run the client:
-```bash
-cd src/backend
-SHOW_THINKING_LOGS=1 uv run python slide_deck_client.py
-```
-
-### Voice Commands
-
-Once you see "Listening for commands...", try saying:
-
-- **Navigation**:
-  - "Go to the **next slide**"
-  - "Go back to the **previous slide**"
-  - "Jump to **slide 5**"
-  
-- **Content**:
-  - "Add a bullet point about **AI is awesome**"
-  - "Add a note saying **remember to mention scalability**"
-
-- **Context & Summary**:
-  - "**Summarize** the presentation so far"
-  - "What is the **current status**?" (Uses `get_presentation_context`)
-  - "What slide am I on?"
-
-### Logs
-
-- **Thinking Logs**: With `SHOW_THINKING_LOGS=1`, you'll see the AI's decision process in the console.
-- **Execution Log**: Detailed logs are written to `execution.log`.
-
----
-
-## 🎤 Intent Detection Client (Legacy)
-
-The project also includes a simpler speech-to-action client for basic testing.
-
-### Usage
-
-Run the intent client:
+### Installation
 
 ```bash
-cd src/backend
-uv run python intent_client.py
+# Create virtual environment and install dependencies
+uv sync
 ```
 
-The client recognizes basic commands like "**print hello**", "**say goodbye**", etc.
+Note: When using `uv run`, you don't need to activate the virtual environment manually. The `uv run` command automatically uses the project's virtual environment.
 
-### Configuration
+### Environment Variables
 
-#### Thinking Logs
-
-By default, thinking logs (model reasoning) are disabled. Enable them for development:
-
-**Via environment variable:**
 ```bash
-SHOW_THINKING_LOGS=1 uv run python intent_client.py
+export GEMINI_API_KEY="your-api-key-here"
 ```
 
-**Or modify the code:**
-```python
-# In intent_client.py, change:
-SHOW_THINKING_LOGS = True  # Default is False
+### Running the Server
+
+```bash
+# Recommended: Using uv run (automatically uses the virtual environment)
+uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Alternative: If you prefer to activate the virtual environment manually
+source .venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Execution Log
+## API Endpoints
 
-All function executions are logged to `execution.log` in the backend directory with timestamps:
+### WebSocket `/ws`
+
+Real-time audio streaming endpoint. Accepts PCM audio data and returns:
+- Audio responses from Gemini
+- JSON messages with jokes when detected
+
+### GET `/health`
+
+Health check endpoint.
+
+## Architecture
 
 ```
-[2025-01-XX XX:XX:XX] [INTENT DETECTED] Function: print_hello
-[2025-01-XX XX:XX:XX] [FUNCTION CALLED] print_hello() - Hello!
+Frontend (React) <--WebSocket--> FastAPI <--Live API--> Gemini
+                                    |
+                                    +--> generate_joke tool
 ```
 
-### How It Works
+When Gemini detects a joke request, it calls the `generate_joke` tool, which:
+1. Generates a joke using the Gemini API
+2. Sends the joke to the frontend as a JSON message
+3. Returns the result to Gemini for acknowledgment
 
-1. **Audio Capture**: Captures 16kHz PCM audio from microphone via `AudioProcessor`.
-2. **Streaming**: Streams audio chunks to Gemini Live API in real-time.
-3. **Intent Detection**: Gemini analyzes speech and detects when commands match function descriptions.
-4. **Function Execution**: Detected intents trigger valid Python functions via `ToolExecutor`.
-5. **Logging**: All executions are logged to `execution.log`.
