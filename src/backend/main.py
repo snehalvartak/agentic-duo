@@ -520,17 +520,6 @@ async def websocket_endpoint(
                                 "status": status,
                                 "data": res_data,
                             })
-                        elif name == "inject_summary":
-                            # FALLBACK: This handles cases where the model hallucinates and calls inject_summary directly
-                            # instead of trigger_summary. We still support it to prevent errors.
-                            html_content = res_data.get("html", "")
-                            logger.info(f"✓ Summary Injected (Direct/Fallback)", extra={"session_id": session_id})
-                            
-                            await safe_send_json({
-                                "type": "inject_summary",
-                                "html": html_content,
-                                "summary": res_data.get("summary", ""),
-                            })
                         else:
                             logger.info(f"✓ {name}: {status}", extra={"session_id": session_id})
                             await safe_send_json({
