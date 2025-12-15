@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
 from google import genai
-from google.genai import types
 
 import slidekick.config as config
 
