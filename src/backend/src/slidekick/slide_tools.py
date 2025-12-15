@@ -114,7 +114,7 @@ class SlideTools:
             # Simple HTML formatting using a Reveal.js compatible structure
             html_content = f"""
             <h2>Presentation Summary</h2>
-            <div class="summary-content" style="text-align: left; font-size: 0.8em; white-space: pre-wrap;">
+            <div class="summary-content" style="text-align: left; font-size: 0.8em;">
 {summary_text}
             </div>
             """

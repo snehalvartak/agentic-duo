@@ -76,10 +76,14 @@ class ContentProcessor:
             - Live Transcript (what the speaker said): {transcript}
             
             TASK:
-            Generate a concise, bulleted summary of what has been discussed.
+            Generate a concise, bulleted summary of what has been discussed using HTML format.
             - Focus on the main points covered by the speaker.
             - Use the slide context to fill in details or clarify terms.
-            - Format for a slide presentation (short, punchy bullets).
+            - Format for a slide presentation:
+                - Use `<ul>` and `<li>` tags for the list.
+                - Use `<strong>` for key terms.
+                - Do NOT use Markdown (no asterisks).
+                - Do NOT wrap in ```html code blocks. Return raw HTML only.
             """
             
             logger.info("Generating live presentation summary...")
