@@ -1,25 +1,64 @@
-# Agentic AI App Hackathon Template
+# `Agentic Duo`'s OSDC AI 2025 Agentic AI Hackathon Submission
 
-Welcome! This repository is your starting point for the **Agentic AI App Hackathon**. It includes:
+<div align="center">
+  <img src="images/osdc-agentic-ai-hackathon.png" alt="OSDC 2025 Agentic AI App Hackathon" />
+</div>
 
-- A consistent folder structure  
-- An environment spec (`environment.yml` or `Dockerfile`)  
-- Documentation placeholders to explain your design and demo
+Hello! We are **Agentic Duo** 👋🏾. Our team is proud to introduce you to our submission Slidekick - Your A.I Presentation Companion.
 
-**Important:** Clone or fork this template. The fork name MUST be the same as your team name.
+### What is Slidekick?
 
-## 📋 Submission Checklist
-
-- [ ] All code in `src/` runs without errors  
-- [ ] `ARCHITECTURE.md` contains a clear diagram sketch and explanation  
-- [ ] `EXPLANATION.md` covers planning, tool use, memory, and limitations  
-- [ ] `DEMO.md` links to a 3–5 min video with timestamped highlights  
+Slidekick is an AI-powered presentation companion that enables voice-controlled slide navigation. Using Google's Gemini Live API, it processes real-time audio streams to understand natural voice commands and automatically navigate through your presentation slides. Simply speak commands like "next slide" or "go to slide 5" and Slidekick handles the rest. The system converts markdown files to Reveal.js presentations and provides a seamless, hands-free presentation experience.
 
 
 ## 📂 Folder Layout
 
-![Folder Layout Diagram](images/folder-githb.png)
+Our solution is split between backend and frontend with the following general layout:
 
+```
+agentic-duo/
+├── src/
+│   ├── backend/
+│   │   ├── main.py
+│   │   ├── pyproject.toml
+│   │   ├── src/slidekick/        # Core backend modules
+│   │   ├── tests/                # Backend tests
+│   │   ├── playground/           # Sample scripts
+│   │   ├── public/               # Static files & uploads
+│   │   └── logs/                 # Application logs
+│   │
+│   └── frontend/
+│       ├── src/
+│       │   ├── components/       # React components
+│       │   ├── types/            # TypeScript types
+│       │   ├── App.tsx
+│       │   └── index.tsx
+│       ├── public/               # Static assets
+│       ├── dist/                 # Build output
+│       ├── package.json
+│       └── vite.config.ts
+│
+├── demo_slide_decks/             # Sample slide decks to try out
+├── images/
+└── README.md
+```
+
+## How to Get Started
+
+To get started with Slidekick, please refer to the setup instructions in the respective README files:
+
+- **Backend Setup**: See [`src/backend/README.md`](src/backend/README.md) for installation and running instructions
+- **Frontend Setup**: See [`src/frontend/README.md`](src/frontend/README.md) for installation and running instructions
+
+> **💡 Tip**: It's best to run the backend and frontend in separate terminals side by side. This can be done easily in VS Code-like IDEs by splitting the terminal view, allowing you to monitor both services simultaneously.
+
+
+## 📋 Submission Checklist
+
+- [x] `src/` folder contains main code logic with some basic tests
+- [ ] `ARCHITECTURE.md` contains a clear diagram sketch and explanation  
+- [ ] `EXPLANATION.md` covers planning, tool use, memory, and limitations  
+- [ ] `DEMO.md` links to a 3–5 min video with timestamped highlights  
 
 
 ## 🏅 Judging Criteria

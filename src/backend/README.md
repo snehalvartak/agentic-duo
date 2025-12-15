@@ -34,9 +34,15 @@ uv sync
 
 ### Environment Variables
 
-```bash
-export GEMINI_API_KEY="your-api-key-here"
-```
+1. Copy the `.env.example` file to create your own `.env` file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Open the newly created `.env` file and update it with your valid Gemini API key:
+   ```bash
+   GEMINI_API_KEY="your-api-key-here"
+   ```
 
 ### Running the Server
 
