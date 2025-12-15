@@ -56,9 +56,9 @@ To get started with Slidekick, please refer to the setup instructions in the res
 ## 📋 Submission Checklist
 
 - [x] `src/` folder contains main code logic with some basic tests
-- [ ] `ARCHITECTURE.md` contains a clear diagram sketch and explanation  
-- [ ] `EXPLANATION.md` covers planning, tool use, memory, and limitations  
-- [ ] `DEMO.md` links to a 3–5 min video with timestamped highlights  
+- [x] `ARCHITECTURE.md` contains a clear diagram sketch and explanation  
+- [x] `EXPLANATION.md` covers planning, tool use, memory, and limitations  
+- [x] `DEMO.md` links to a 3–5 min video with timestamped highlights  
 
 
 ## 🏅 Judging Criteria

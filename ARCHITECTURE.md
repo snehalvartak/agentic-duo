@@ -23,7 +23,7 @@ Slidekick is a voice-controlled presentation companion powered by Google's Gemin
 │  │                         │         │  │  └───────────┬───────────────┘  │    │   │
 │  │  ┌───────────────────┐  │         │  │              │                  │    │   │
 │  │  │  AudienceView     │  │         │  │  ┌───────────▼───────────────┐  │    │   │
-│  │  │  (View-only mode) │  │         │  │  │     Gemini Live API       │◄─┼────┼───┤
+│  │  │  (View-only mode) │  │         │  │  │     Gemini Live API       │  │    │   │
 │  │  └───────────────────┘  │         │  │  │  (Real-time STT + Intent) │  │    │   │
 │  │                         │         │  │  └───────────┬───────────────┘  │    │   │
 │  │  ┌───────────────────┐  │         │  │              │ Tool Calls       │    │   │
@@ -35,35 +35,38 @@ Slidekick is a voice-controlled presentation companion powered by Google's Gemin
 │                                      │  │  ┌───────────▼───────────────┐  │    │   │
 │                                      │  │  │     SlideTools            │  │    │   │
 │                                      │  │  │  • navigate_slide()       │  │    │   │
-│                                      │  │  │  • get_presentation_ctx() │  │    │   │
+│                                      │  │  │  • trigger_summary()      │  │    │   │
+│                                      │  │  │  • inject_summary()       │  │    │   │
 │                                      │  │  └───────────┬───────────────┘  │    │   │
 │                                      │  │              │                  │    │   │
 │                                      │  │  ┌───────────▼───────────────┐  │    │   │
 │                                      │  │  │     StateManager          │  │    │   │
 │                                      │  │  │  • current_slide          │  │    │   │
-│                                      │  │  │  • total_slides           │  │    │   │
-│                                      │  │  │  • session_metadata       │  │    │   │
-│                                      │  │  └───────────────────────────┘  │    │   │
-│                                      │  └─────────────────────────────────┘    │   │
-│                                      │                                         │   │
-│                                      │  ┌─────────────────────────────────┐    │   │
+│                                      │  │  │  • transcript_history     │  │    │   │
+│                                      │  │  └───────────┬───────────────┘  │    │   │
+│                                      │  │              │ (context)        │    │   │
+│                                      │  │  ┌───────────▼───────────────┐  │    │   │
+│                                      │  │  │    ContentProcessor       │  │    │   │
+│                                      │  │  │  • process_slides()       │  │    │   │
+│                                      │  │  │  • generate_summary()     │  │    │   │
+│                                      │  │  └───────────┬───────────────┘  │    │   │
+│                                      │  └──────────────┼──────────────────┘    │   │
+│                                      │                 │                       │   │
+│                                      │  ┌──────────────▼──────────────────┐    │   │
 │                                      │  │    reveal-md (npx)              │    │   │
 │                                      │  │    (Markdown → Static HTML)     │    │   │
 │                                      │  └─────────────────────────────────┘    │   │
 │                                      └─────────────────────────────────────────┘   │
 │                                                                                    │
-└────────────────────────────────────────────────────────────────────────────────────┘
-                                              │
-                                              │ HTTPS API
-                                              ▼
-                                ┌─────────────────────────────┐
-                                │   Google Gemini Live API    │
-                                │   gemini-2.5-flash-native-  │
-                                │   audio-preview             │
-                                │   • Real-time audio input   │
-                                │   • Function calling        │
-                                │   • Audio output            │
-                                └─────────────────────────────┘
+└──────────────────────────────────────────────────┬─────────────────────────────────┘
+                                                   │
+                                     ┌─────────────┼────────────────────────────┐
+                                     ▼             ▼                            ▼
+                 ┌─────────────────────────────┐ ┌────────────────────────┐ ┌───────────────┐
+                 │   Google Gemini Live API    │ │  gemini-2.0-flash-exp  │ │ Static Files  │
+                 │   gemini-2.5-flash-native-  │ │  (Summary Gen)         │ │ (Generated)   │
+                 │   audio-preview             │ └────────────────────────┘ └───────────────┘
+                 └─────────────────────────────┘
 ```
 
 ## Components
@@ -101,6 +104,13 @@ The agent core orchestrates the voice-to-action pipeline:
 - Unified queue-based interface for audio streaming
 - Configures 16kHz, 16-bit, mono PCM format (Gemini requirement)
 
+#### **ContentProcessor** (`content_processor.py`)
+- Independent processing unit using `gemini-2.0-flash-exp` (static model)
+- Responsibilities:
+  - `process_slides()`:  Generating initial content summaries from markdown files
+  - `generate_presentation_summary()`: Synthesizing live transcript + slide content into a summary slide
+- Runs in background threads to avoid blocking real-time audio handling
+
 #### **ToolExecutor** (`tool_executor.py`)
 - Registry-based tool management system
 - Registers Python async functions with Gemini `FunctionDeclaration` schemas
@@ -116,13 +126,16 @@ The agent core orchestrates the voice-to-action pipeline:
 #### **SlideTools** (`slide_tools.py`)
 - Domain-specific tools for presentation control:
   - `navigate_slide(direction, index)`: Move next/prev or jump to specific slide
-- Designed for extensibility (future: `inject_image`, `generate_summary`)
+  - `trigger_summary(conversational_context)`: Initiates background summary generation
+  - `inject_summary(summary_text)`: Generates HTML for dynamic summary slides
+- Designed for extensibility (future: `inject_image`)
 
 ### 3. Tools / APIs
 
 | Tool/API | Purpose |
 |----------|---------|
 | **Google Gemini Live API** | Real-time bidirectional audio streaming with function calling |
+| **Google Gemini Flash 2.0 (`gemini-2.0-flash-exp`)** | High-speed static model for generating presentation summaries |
 | **reveal-md** | Converts Markdown to Reveal.js static sites |
 | **Reveal.js** | Programmatic slide navigation in browser |
 | **FastAPI StaticFiles** | Serves generated presentations |
@@ -132,8 +145,9 @@ The agent core orchestrates the voice-to-action pipeline:
 | Tool | Parameters | Description |
 |------|------------|-------------|
 | `navigate_slide` | `direction`: "next" \| "prev" \| "jump"<br>`index`: slide number (1-based, required for "jump") | Move to next/previous slide or jump to a specific slide number |
+| `trigger_summary` | `conversational_context`: detailed summary of speaker's points | Triggers background task to generate and inject a summary slide |
 
-*Future tools (not yet registered):* `inject_image`, `generate_summary`
+*Future tools (not yet registered):* `inject_image`
 
 ### 4. Observability
 
@@ -171,6 +185,7 @@ The frontend provides real-time visual feedback through WebSocket messages sent 
 | `transcript` | Gemini's speech transcription |
 | `intent_detected` | Tool call detected (before execution) |
 | `slide_command` | Navigation result (triggers UI update) |
+| `inject_summary` | Summary generated and ready to inject (triggers slide update) |
 | Audio bytes | Gemini's spoken response (24kHz PCM) |
 
 #### What Gets Logged and Why?
@@ -210,14 +225,18 @@ User speaks → Browser captures audio → WebSocket streams to Backend
                               Gemini Live API (intent recognition)
                                               │
                                               ▼
-                              Tool execution → Frontend navigation
+                              Tool execution ─┬─► Sync: Frontend navigation
+                                              │
+                                              └─► Async: Background Task (Summary)
 ```
 
 1. **Capture:** Browser records audio via AudioWorklet, streams over WebSocket
 2. **Process:** Backend queues audio, forwards to Gemini Live API
 3. **Decide:** Gemini recognizes intent, returns `tool_call` if command detected
-4. **Execute:** ToolExecutor runs the tool, updates StateManager
-5. **Respond:** Frontend receives command, navigates slides; Gemini speaks confirmation
+4. **Execute:** ToolExecutor runs the tool.
+   - *Sync:* Updates state immediately (e.g., navigation).
+   - *Async:* Spawns background task (e.g., summary generation) and returns immediately to keep voice loop active.
+5. **Respond:** Frontend receives command (slide change or injection event); Gemini speaks confirmation.
 
 > See [EXPLANATION.md](EXPLANATION.md) for detailed step-by-step agent workflow.
 
@@ -266,6 +285,5 @@ We chose Markdown as the presentation format for several compelling reasons:
 The architecture is designed for future enhancements:
 
 - **`inject_image` tool:** Call Imagen API to generate and insert images on slides
-- **`generate_summary` tool:** Create slide-by-slide summary from transcript
 - **Multi-presenter support:** StateManager can be extended for collaborative sessions
 - **Persistence:** Add database backing to StateManager for session recovery
