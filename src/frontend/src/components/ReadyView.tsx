@@ -22,7 +22,7 @@ export const ReadyView: React.FC<ReadyViewProps> = ({
       className="card"
     >
       <div className="card-header">
-        <h2>Agentic Slide Deck - Upload Presentation</h2>
+        <h2>Slidekick - Ready</h2>
       </div>
       
       <div className="ready-state">

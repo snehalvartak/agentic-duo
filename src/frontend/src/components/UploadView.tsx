@@ -67,7 +67,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       className="card"
     >
       <div className="card-header">
-        <h2>Agentic Slide Deck - Upload Presentation</h2>
+        <h2>Slidekick - Upload Presentation</h2>
       </div>
       
       {!file ? (

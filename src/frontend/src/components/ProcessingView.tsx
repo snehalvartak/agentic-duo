@@ -14,7 +14,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ file }) => {
       className="card"
     >
       <div className="card-header">
-        <h2>Agentic Slide Deck - Upload Presentation</h2>
+        <h2>Slidekick - Processing</h2>
       </div>
       <div className="processing-state">
         <div className="file-info disabled">
