@@ -1,19 +1,19 @@
 """
 Unit tests for StateManager
 
-Tests slide tracking, transcript management, injection tracking, and state operations.
+Tests slide tracking, transcript management, session metadata, and state operations.
 """
 
 import asyncio
-import sys
-from pathlib import Path
 import pytest
 from datetime import datetime
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from slidekick.state_manager import StateManager
 
-from state_manager import StateManager, InjectionRecord
+
+# =============================================================================
+# Fixtures
+# =============================================================================
 
 
 @pytest.fixture
@@ -22,244 +22,356 @@ def state_manager():
     return StateManager(total_slides=10)
 
 
-@pytest.mark.asyncio
-async def test_state_manager_initialization():
-    """Test that StateManager initializes correctly."""
-    manager = StateManager(total_slides=10)
+# =============================================================================
+# Initialization Tests
+# =============================================================================
+
+
+class TestStateManagerInitialization:
+    """Tests for StateManager initialization."""
     
-    assert manager.total_slides == 10
-    assert manager.current_slide == 0
-    assert len(manager.transcript) == 0
-    assert len(manager.injections) == 0
-
-
-@pytest.mark.asyncio
-async def test_set_and_get_current_slide(state_manager):
-    """Test setting and getting current slide."""
-    await state_manager.set_current_slide(5)
-    current = await state_manager.get_current_slide()
+    @pytest.mark.asyncio
+    async def test_initialization_with_total_slides(self):
+        """Test that StateManager initializes correctly with slide count."""
+        manager = StateManager(total_slides=10)
+        
+        assert manager.total_slides == 10
+        assert manager.current_slide == 0
+        assert len(manager.transcript_history) == 0
     
-    assert current == 5
-
-
-@pytest.mark.asyncio
-async def test_set_current_slide_out_of_range(state_manager):
-    """Test that setting invalid slide index raises error."""
-    with pytest.raises(ValueError, match="out of range"):
-        await state_manager.set_current_slide(15)
-
-
-@pytest.mark.asyncio
-async def test_navigate_next(state_manager):
-    """Test navigating to next slide."""
-    await state_manager.set_current_slide(5)
-    new_index = await state_manager.navigate("next")
+    @pytest.mark.asyncio
+    async def test_initialization_default_total_slides(self):
+        """Test that StateManager defaults to 0 slides when not specified."""
+        manager = StateManager()
+        
+        assert manager.total_slides == 0
+        assert manager.current_slide == 0
     
-    assert new_index == 6
-    assert await state_manager.get_current_slide() == 6
+    @pytest.mark.asyncio
+    async def test_session_metadata_initialized(self):
+        """Test that session metadata is initialized with started_at timestamp."""
+        manager = StateManager()
+        
+        assert "started_at" in manager.session_metadata
+        assert "session_id" in manager.session_metadata
+        assert manager.session_metadata["session_id"] is None
+        assert isinstance(manager.session_metadata["started_at"], datetime)
 
 
-@pytest.mark.asyncio
-async def test_navigate_prev(state_manager):
-    """Test navigating to previous slide."""
-    await state_manager.set_current_slide(5)
-    new_index = await state_manager.navigate("prev")
+# =============================================================================
+# Slide Navigation Tests
+# =============================================================================
+
+
+class TestSlideNavigation:
+    """Tests for slide navigation functionality."""
     
-    assert new_index == 4
-    assert await state_manager.get_current_slide() == 4
-
-
-@pytest.mark.asyncio
-async def test_navigate_jump(state_manager):
-    """Test jumping to specific slide."""
-    new_index = await state_manager.navigate("jump", index=7)
+    @pytest.mark.asyncio
+    async def test_set_and_get_current_slide(self, state_manager):
+        """Test setting and getting current slide."""
+        await state_manager.set_current_slide(5)
+        current = await state_manager.get_current_slide()
+        
+        assert current == 5
     
-    assert new_index == 7
-    assert await state_manager.get_current_slide() == 7
-
-
-@pytest.mark.asyncio
-async def test_navigate_boundaries(state_manager):
-    """Test navigation at slide boundaries."""
-    # At first slide, can't go prev
-    await state_manager.set_current_slide(0)
-    new_index = await state_manager.navigate("prev")
-    assert new_index == 0
+    @pytest.mark.asyncio
+    async def test_set_current_slide_negative_clamped(self, state_manager):
+        """Test that negative slide index is clamped to 0."""
+        await state_manager.set_current_slide(-5)
+        current = await state_manager.get_current_slide()
+        
+        assert current == 0
     
-    # At last slide, can't go next
-    await state_manager.set_current_slide(9)
-    new_index = await state_manager.navigate("next")
-    assert new_index == 9
-
-
-@pytest.mark.asyncio
-async def test_add_transcript_entry(state_manager):
-    """Test adding transcript entries."""
-    await state_manager.add_transcript_entry("Hello, world!", speaker="user")
+    @pytest.mark.asyncio
+    async def test_navigate_next(self, state_manager):
+        """Test navigating to next slide."""
+        await state_manager.set_current_slide(5)
+        new_index = await state_manager.navigate("next")
+        
+        assert new_index == 6
+        assert await state_manager.get_current_slide() == 6
     
-    transcript = await state_manager.get_recent_transcript(n=10)
-    assert len(transcript) == 1
-    assert transcript[0]["text"] == "Hello, world!"
-    assert transcript[0]["speaker"] == "user"
-    assert transcript[0]["slide_index"] == 0
+    @pytest.mark.asyncio
+    async def test_navigate_prev(self, state_manager):
+        """Test navigating to previous slide."""
+        await state_manager.set_current_slide(5)
+        new_index = await state_manager.navigate("prev")
+        
+        assert new_index == 4
+        assert await state_manager.get_current_slide() == 4
+    
+    @pytest.mark.asyncio
+    async def test_navigate_jump(self, state_manager):
+        """Test jumping to specific slide."""
+        new_index = await state_manager.navigate("jump", index=7)
+        
+        assert new_index == 7
+        assert await state_manager.get_current_slide() == 7
+    
+    @pytest.mark.asyncio
+    async def test_navigate_jump_requires_index(self, state_manager):
+        """Test that jump navigation requires an index."""
+        with pytest.raises(ValueError, match="Index required"):
+            await state_manager.navigate("jump")
+    
+    @pytest.mark.asyncio
+    async def test_navigate_invalid_direction(self, state_manager):
+        """Test that invalid direction raises error."""
+        with pytest.raises(ValueError, match="Invalid direction"):
+            await state_manager.navigate("sideways")
+    
+    @pytest.mark.asyncio
+    async def test_navigate_next_at_last_slide(self, state_manager):
+        """Test that navigating next at last slide stays at last slide."""
+        await state_manager.set_current_slide(9)  # Last slide (0-indexed)
+        new_index = await state_manager.navigate("next")
+        
+        assert new_index == 9  # Should stay at last slide
+    
+    @pytest.mark.asyncio
+    async def test_navigate_prev_at_first_slide(self, state_manager):
+        """Test that navigating prev at first slide stays at first slide."""
+        await state_manager.set_current_slide(0)
+        new_index = await state_manager.navigate("prev")
+        
+        assert new_index == 0  # Should stay at first slide
+    
+    @pytest.mark.asyncio
+    async def test_navigate_jump_clamped_to_bounds(self, state_manager):
+        """Test that jump is clamped to slide bounds."""
+        # Jump beyond total slides
+        new_index = await state_manager.navigate("jump", index=100)
+        assert new_index == 9  # Clamped to last slide
+        
+        # Jump to negative
+        new_index = await state_manager.navigate("jump", index=-5)
+        assert new_index == 0  # Clamped to first slide
+    
+    @pytest.mark.asyncio
+    async def test_navigate_next_with_unknown_total(self):
+        """Test navigating next when total_slides is unknown (0)."""
+        manager = StateManager(total_slides=0)
+        await manager.set_current_slide(5)
+        
+        new_index = await manager.navigate("next")
+        
+        # Should allow going beyond when total is unknown
+        assert new_index == 6
 
 
-@pytest.mark.asyncio
-async def test_get_recent_transcript(state_manager):
-    """Test getting recent transcript entries."""
-    # Add multiple entries
-    for i in range(15):
-        await state_manager.add_transcript_entry(f"Entry {i}", speaker="user")
-    
-    # Get last 10
-    recent = await state_manager.get_recent_transcript(n=10)
-    assert len(recent) == 10
-    assert recent[-1]["text"] == "Entry 14"
+# =============================================================================
+# Total Slides Tests
+# =============================================================================
 
 
-@pytest.mark.asyncio
-async def test_get_transcript_for_slide(state_manager):
-    """Test getting transcript for specific slide."""
-    await state_manager.set_current_slide(0)
-    await state_manager.add_transcript_entry("On slide 0", speaker="user")
+class TestTotalSlides:
+    """Tests for total slides management."""
     
-    await state_manager.set_current_slide(1)
-    await state_manager.add_transcript_entry("On slide 1", speaker="user")
+    @pytest.mark.asyncio
+    async def test_set_and_get_total_slides(self, state_manager):
+        """Test setting and getting total slides."""
+        await state_manager.set_total_slides(20)
+        total = await state_manager.get_total_slides()
+        
+        assert total == 20
     
-    slide_0_transcript = await state_manager.get_transcript_for_slide(0)
-    assert len(slide_0_transcript) == 1
-    assert slide_0_transcript[0]["text"] == "On slide 0"
+    @pytest.mark.asyncio
+    async def test_set_total_slides_negative_clamped(self, state_manager):
+        """Test that negative total slides is clamped to 0."""
+        await state_manager.set_total_slides(-5)
+        total = await state_manager.get_total_slides()
+        
+        assert total == 0
 
 
-@pytest.mark.asyncio
-async def test_track_injection(state_manager):
-    """Test tracking content injections."""
-    await state_manager.track_injection(
-        placeholder="AI:IMAGE",
-        content_type="image",
-        content="base64_data_here"
-    )
-    
-    injections = await state_manager.get_all_injections()
-    assert len(injections) == 1
-    assert injections[0].placeholder == "AI:IMAGE"
-    assert injections[0].content_type == "image"
+# =============================================================================
+# Transcript Tests
+# =============================================================================
 
 
-@pytest.mark.asyncio
-async def test_get_injections_for_slide(state_manager):
-    """Test getting injections for specific slide."""
-    await state_manager.set_current_slide(0)
-    await state_manager.track_injection("AI:IMAGE", "image", "data1")
+class TestTranscript:
+    """Tests for transcript management."""
     
-    await state_manager.set_current_slide(1)
-    await state_manager.track_injection("AI:TEXT", "text", "data2")
+    @pytest.mark.asyncio
+    async def test_add_transcript(self, state_manager):
+        """Test adding transcript entries."""
+        await state_manager.add_transcript("Hello, world!")
+        
+        transcript = await state_manager.get_transcript()
+        assert transcript == "Hello, world!"
     
-    slide_0_injections = await state_manager.get_injections_for_slide(0)
-    assert len(slide_0_injections) == 1
-    assert slide_0_injections[0].content == "data1"
+    @pytest.mark.asyncio
+    async def test_add_multiple_transcripts(self, state_manager):
+        """Test adding multiple transcript entries."""
+        await state_manager.add_transcript("First line")
+        await state_manager.add_transcript("Second line")
+        await state_manager.add_transcript("Third line")
+        
+        transcript = await state_manager.get_transcript()
+        assert "First line" in transcript
+        assert "Second line" in transcript
+        assert "Third line" in transcript
+        assert transcript == "First line\nSecond line\nThird line"
+    
+    @pytest.mark.asyncio
+    async def test_transcript_limit(self, state_manager):
+        """Test that transcript is limited to last 100 entries."""
+        # Add 150 entries
+        for i in range(150):
+            await state_manager.add_transcript(f"Line {i}")
+        
+        transcript = await state_manager.get_transcript()
+        lines = transcript.split('\n')
+        
+        # Should only have last 100 lines
+        assert len(lines) == 100
+        # First line should be Line 50
+        assert lines[0] == "Line 50"
+        # Last line should be Line 149
+        assert lines[-1] == "Line 149"
+    
+    @pytest.mark.asyncio
+    async def test_get_empty_transcript(self, state_manager):
+        """Test getting transcript when empty."""
+        transcript = await state_manager.get_transcript()
+        assert transcript == ""
 
 
-@pytest.mark.asyncio
-async def test_set_and_get_total_slides(state_manager):
-    """Test setting and getting total slides."""
-    await state_manager.set_total_slides(20)
-    total = await state_manager.get_total_slides()
-    
-    assert total == 20
+# =============================================================================
+# Context Tests
+# =============================================================================
 
 
-@pytest.mark.asyncio
-async def test_get_context(state_manager):
-    """Test getting presentation context."""
-    await state_manager.set_current_slide(3)
-    await state_manager.add_transcript_entry("Test entry", speaker="user")
-    await state_manager.track_injection("AI:IMAGE", "image", "data")
+class TestContext:
+    """Tests for presentation context functionality."""
     
-    context = await state_manager.get_context()
+    @pytest.mark.asyncio
+    async def test_get_context(self, state_manager):
+        """Test getting presentation context."""
+        await state_manager.set_current_slide(3)
+        
+        context = await state_manager.get_context()
+        
+        assert context["current_slide"] == 3
+        assert context["total_slides"] == 10
+        assert "session_metadata" in context
     
-    assert context["current_slide"] == 3
-    assert context["total_slides"] == 10
-    assert context["transcript_entries"] == 1
-    assert context["injections_count"] == 1
+    @pytest.mark.asyncio
+    async def test_context_includes_session_metadata(self, state_manager):
+        """Test that context includes session metadata."""
+        await state_manager.set_session_id("test-session-123")
+        
+        context = await state_manager.get_context()
+        
+        assert context["session_metadata"]["session_id"] == "test-session-123"
+        assert "started_at" in context["session_metadata"]
 
 
-@pytest.mark.asyncio
-async def test_metadata_operations(state_manager):
-    """Test session metadata operations."""
-    await state_manager.set_metadata("session_id", "abc123")
-    await state_manager.set_metadata("presenter", "John Doe")
-    
-    session_id = await state_manager.get_metadata("session_id")
-    presenter = await state_manager.get_metadata("presenter")
-    missing = await state_manager.get_metadata("missing_key", default="default_value")
-    
-    assert session_id == "abc123"
-    assert presenter == "John Doe"
-    assert missing == "default_value"
+# =============================================================================
+# Session Management Tests
+# =============================================================================
 
 
-@pytest.mark.asyncio
-async def test_clear_transcript(state_manager):
-    """Test clearing transcript."""
-    await state_manager.add_transcript_entry("Entry 1", speaker="user")
-    await state_manager.add_transcript_entry("Entry 2", speaker="user")
+class TestSessionManagement:
+    """Tests for session management functionality."""
     
-    await state_manager.clear_transcript()
+    @pytest.mark.asyncio
+    async def test_set_session_id(self, state_manager):
+        """Test setting session ID."""
+        await state_manager.set_session_id("abc123")
+        
+        context = await state_manager.get_context()
+        assert context["session_metadata"]["session_id"] == "abc123"
     
-    transcript = await state_manager.get_recent_transcript(n=10)
-    assert len(transcript) == 0
+    @pytest.mark.asyncio
+    async def test_reset(self, state_manager):
+        """Test resetting all state."""
+        # Set up state
+        await state_manager.set_current_slide(5)
+        await state_manager.add_transcript("Test entry")
+        await state_manager.set_session_id("test-session")
+        
+        # Reset
+        await state_manager.reset()
+        
+        # Verify reset
+        assert await state_manager.get_current_slide() == 0
+        transcript = await state_manager.get_transcript()
+        assert transcript == ""
+        assert state_manager.session_metadata["session_id"] is None
 
 
-@pytest.mark.asyncio
-async def test_clear_injections(state_manager):
-    """Test clearing injections."""
-    await state_manager.track_injection("AI:IMAGE", "image", "data1")
-    await state_manager.track_injection("AI:TEXT", "text", "data2")
-    
-    await state_manager.clear_injections()
-    
-    injections = await state_manager.get_all_injections()
-    assert len(injections) == 0
+# =============================================================================
+# Concurrency Tests
+# =============================================================================
 
 
-@pytest.mark.asyncio
-async def test_reset(state_manager):
-    """Test resetting all state."""
-    await state_manager.set_current_slide(5)
-    await state_manager.add_transcript_entry("Entry", speaker="user")
-    await state_manager.track_injection("AI:IMAGE", "image", "data")
-    await state_manager.set_metadata("key", "value")
+class TestConcurrency:
+    """Tests for concurrent access safety."""
     
-    await state_manager.reset()
+    @pytest.mark.asyncio
+    async def test_concurrent_navigation(self):
+        """Test that state manager handles concurrent navigation safely."""
+        manager = StateManager(total_slides=100)
+        
+        async def navigate_next():
+            for _ in range(10):
+                await manager.navigate("next")
+                await asyncio.sleep(0.001)
+        
+        async def navigate_prev():
+            for _ in range(5):
+                await manager.navigate("prev")
+                await asyncio.sleep(0.002)
+        
+        # Run both concurrently
+        await asyncio.gather(navigate_next(), navigate_prev())
+        
+        # State should be consistent (exact value depends on timing)
+        current = await manager.get_current_slide()
+        assert 0 <= current < 100
     
-    assert await state_manager.get_current_slide() == 0
-    assert len(await state_manager.get_recent_transcript(n=10)) == 0
-    assert len(await state_manager.get_all_injections()) == 0
-    assert await state_manager.get_metadata("key") is None
-
-
-@pytest.mark.asyncio
-async def test_concurrent_access():
-    """Test that state manager handles concurrent access safely."""
-    manager = StateManager(total_slides=10)
+    @pytest.mark.asyncio
+    async def test_concurrent_transcript_and_navigation(self):
+        """Test concurrent transcript and navigation operations."""
+        manager = StateManager(total_slides=10)
+        
+        async def navigate_task():
+            for _ in range(10):
+                await manager.navigate("next")
+                await asyncio.sleep(0.001)
+        
+        async def transcript_task():
+            for i in range(10):
+                await manager.add_transcript(f"Entry {i}")
+                await asyncio.sleep(0.001)
+        
+        # Run tasks concurrently
+        await asyncio.gather(navigate_task(), transcript_task())
+        
+        # Verify state is consistent
+        current = await manager.get_current_slide()
+        transcript = await manager.get_transcript()
+        
+        assert current >= 0
+        assert len(transcript.split('\n')) == 10
     
-    async def navigate_task():
-        for _ in range(10):
-            await manager.navigate("next")
-            await asyncio.sleep(0.001)
-    
-    async def transcript_task():
-        for i in range(10):
-            await manager.add_transcript_entry(f"Entry {i}", speaker="user")
-            await asyncio.sleep(0.001)
-    
-    # Run tasks concurrently
-    await asyncio.gather(navigate_task(), transcript_task())
-    
-    # Verify state is consistent
-    current = await manager.get_current_slide()
-    transcript = await manager.get_recent_transcript(n=20)
-    
-    assert current >= 0
-    assert len(transcript) == 10
+    @pytest.mark.asyncio
+    async def test_concurrent_reads_and_writes(self):
+        """Test concurrent reads and writes don't cause issues."""
+        manager = StateManager(total_slides=50)
+        
+        async def writer():
+            for i in range(20):
+                await manager.set_current_slide(i)
+                await asyncio.sleep(0.001)
+        
+        async def reader():
+            for _ in range(20):
+                current = await manager.get_current_slide()
+                context = await manager.get_context()
+                assert context["current_slide"] == current
+                await asyncio.sleep(0.001)
+        
+        # Run concurrently
+        await asyncio.gather(writer(), reader())
