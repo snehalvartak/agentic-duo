@@ -61,21 +61,22 @@ async def print_queue_consumer():
 # Main Logic
 # ============================================================================
 
-# ...
 SYSTEM_INSTRUCTION = """You are an AI presentation assistant controlling a slide deck.
 
-Your goal is to help the presenter by navigating slides, adding content, and executing commands in real-time.
+Your goal is to help the presenter by navigating slides and providing context in real-time.
 
 AVAILABLE TOOLS:
-1. `navigate_slide(direction, index)`: Move next/prev or jump to slide. NOTE: index is 0-based (Slide 1 = index 0).
-2. `add_content(content)`: Add text/bullets to current slide.
-3. `inject_image(prompt)`: Generate an image for the slide.
-4. `generate_summary()`: Summarize the talk so far.
-5. `get_presentation_context()`: Check current slide # and status.
+1. `navigate_slide(direction, index)`: Move next/prev or jump to slide. NOTE: index is 1-BASED (Slide 1 = index 1).
+2. `get_presentation_context()`: Check current slide # and status.
+3. `trigger_summary(conversational_context)`: Start generating a summary. YOU MUST PROVIDE `conversational_context` (a summary of what speaker said).
 
 RULES:
 - Execute commands immediately when asked.
-- If the user just talks about the topic, DO NOT call tools. Only call tools for COMMANDS (e.g. "Next slide", "Add that point", "Show me a picture").
+- If the user just talks about the topic, DO NOT call tools. Only call tools for COMMANDS (e.g. "Next slide", "Go to slide 5").
+- When asked to "summarize":
+  1. Think about what the SPEAKER has said so far.
+  2. Call `trigger_summary(conversational_context="...detailed summary of speaker's points...")`.
+  3. Tell the user you have started the summary generation.
 - If unsure, do nothing (don't interrupt the flow).
 """
 
@@ -125,12 +126,21 @@ async def handle_responses(session, tool_executor: ToolExecutor):
                                 # Pretty print result
                                 try:
                                     res_data = result.response.get("data", {})
+                                    status = result.response.get("status", "unknown")
+                                    
                                     if name == "navigate_slide":
                                         # Show human-readable slide number (1-based)
                                         slide_idx = res_data.get('current_slide', 0)
-                                        await safe_print(f"  ✓ Navigated to Slide {slide_idx + 1}")
-                                    elif name == "add_content":
-                                        await safe_print(f"  ✓ Added content: '{res_data.get('content')}'")
+                                        direction = args.get('direction', 'unknown')
+                                        await safe_print(f"  ✓ {direction} -> Slide {slide_idx + 1}")
+                                    elif name == "get_presentation_context":
+                                        current = res_data.get('current_slide', 0)
+                                        total = res_data.get('total_slides', 0)
+                                        await safe_print(f"  ✓ Context: Slide {current + 1}/{total}")
+                                    elif name == "trigger_summary":
+                                        await safe_print(f"  ✓ Summary generation triggered")
+                                    else:
+                                        await safe_print(f"  ✓ {name}: {status}")
                                 except Exception:
                                     pass
 
@@ -165,37 +175,33 @@ async def run():
     
     # 1. Initialize Components
     audio = AudioProcessor.from_pyaudio()  # Use factory method for local microphone
-    state = StateManager(total_slides=10) # Simulating 10 slides
+    state = StateManager(total_slides=10)  # Simulating 10 slides
     tools = SlideTools(state)
     executor = ToolExecutor(verbose=False)
     
-    # ...
-    
-    # WRAPPERS for 1-based indexing (LLM Friendly)
+    # WRAPPER for 1-based indexing (LLM Friendly)
     async def navigate_slide_wrapper(direction: str, index: int | None = None):
         """Wrapper to convert 1-based LLM index to 0-based backend index."""
         if direction == "jump" and index is not None:
             # Convert 1-based (User/LLM) to 0-based (Backend)
-            backend_index = index - 1
-            if backend_index < 0:
-                backend_index = 0
+            backend_index = max(0, index - 1)
             return await tools.navigate_slide(direction, backend_index)
         return await tools.navigate_slide(direction, index)
 
-    # 2. Register Phase 2 Tools with Schemas
+    # 2. Register Tools with Schemas
     executor.register_tool(
         "navigate_slide", 
-        navigate_slide_wrapper, # Use wrapper
+        navigate_slide_wrapper,
         FunctionDeclaration(
             name="navigate_slide",
-            description="Move to next/prev slide or jump to specific index.",
+            description="Move to next/prev slide or jump to specific slide number.",
             parameters=Schema(
                 type=Type.OBJECT,
                 properties={
                     "direction": Schema(
                         type=Type.STRING, 
                         enum=["next", "prev", "jump"],
-                        description="Direction to navigate: 'next', 'prev', or 'jump'"
+                        description="Navigation direction: 'next', 'prev', or 'jump'"
                     ),
                     "index": Schema(
                         type=Type.INTEGER,
@@ -208,57 +214,6 @@ async def run():
     )
     
     executor.register_tool(
-        "add_content", 
-        tools.add_content,
-        FunctionDeclaration(
-            name="add_content",
-            description="Add text content or bullet point to current slide.",
-            parameters=Schema(
-                type=Type.OBJECT,
-                properties={
-                    "content": Schema(
-                        type=Type.STRING,
-                        description="The text content or bullet point to add."
-                    ),
-                    "target_placeholder": Schema(
-                        type=Type.STRING,
-                        description="Optional placeholder ID (default AI:CONTENT)"
-                    )
-                },
-                required=["content"]
-            )
-        )
-    )
-    
-    executor.register_tool(
-        "inject_image", 
-        tools.inject_image,
-        FunctionDeclaration(
-            name="inject_image",
-            description="Generate and inject an image into the slide.",
-            parameters=Schema(
-                type=Type.OBJECT,
-                properties={
-                    "prompt": Schema(
-                        type=Type.STRING,
-                        description="Description of the image to generate"
-                    )
-                },
-                required=["prompt"]
-            )
-        )
-    )
-    
-    executor.register_tool(
-        "generate_summary", 
-        tools.generate_summary,
-        FunctionDeclaration(
-            name="generate_summary",
-            description="Generate a summary of the presentation so far based on transcript."
-        )
-    )
-    
-    executor.register_tool(
         "get_presentation_context", 
         tools.get_presentation_context,
         FunctionDeclaration(
@@ -267,29 +222,42 @@ async def run():
         )
     )
     
-    # 3. Configure Gemini
-    # Update system instruction to reflect 1-based indexing
-    UPDATED_SYSTEM_INSTRUCTION = SYSTEM_INSTRUCTION.replace(
-        "index is 0-based (Slide 1 = index 0)", 
-        "index is 1-BASED (Slide 1 = index 1)"
+    executor.register_tool(
+        "trigger_summary",
+        tools.trigger_summary,
+        FunctionDeclaration(
+            name="trigger_summary",
+            description="Trigger the background generation of a presentation summary.",
+            parameters=Schema(
+                type=Type.OBJECT,
+                properties={
+                    "conversational_context": Schema(
+                        type=Type.STRING,
+                        description="A detailed summary of what the SPEAKER has said during the presentation so far. Be comprehensive.",
+                    ),
+                },
+                required=["conversational_context"],
+            ),
+        ),
     )
     
-    config = {
+    # 3. Configure Gemini
+    gemini_config = {
         "response_modalities": ["AUDIO"],
-        "system_instruction": UPDATED_SYSTEM_INSTRUCTION,
-        "tools": [{"function_declarations": executor.get_tool_declarations()}],
+        "system_instruction": SYSTEM_INSTRUCTION,
+        "tools": [{"function_declarations": executor.tools}],
     }
     
     # 4. Connect
-    async with client.aio.live.connect(model=MODEL, config=config) as session:
+    async with client.aio.live.connect(model=MODEL, config=gemini_config) as session:
         print("="*60)
         print("🎤 Voice Control Active")
         print("="*60)
         print("Say commands like:")
         print("  - 'Next slide'")
         print("  - 'Jump to slide 5'")
-        print("  - 'Add a bullet point about architecture'")
-        print("  - 'Summarize this'")
+        print("  - 'What slide am I on?'")
+        print("  - 'Summarize this presentation'")
         print("\n(Press Ctrl+C to quit)\n")
         
         await audio.start_capture()
