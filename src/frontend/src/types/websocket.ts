@@ -48,10 +48,17 @@ export interface ToolResultMessage {
   data: Record<string, unknown>;
 }
 
-export type WebSocketMessage = 
-  | StatusMessage 
-  | IntentDetectedMessage 
-  | SlideCommandMessage 
-  | TranscriptMessage 
-  | ToolResultMessage;
+export interface InjectSummaryMessage {
+  type: 'inject_summary';
+  html: string;
+  summary: string;
+}
+
+export type WebSocketMessage =
+  | StatusMessage
+  | IntentDetectedMessage
+  | SlideCommandMessage
+  | TranscriptMessage
+  | ToolResultMessage
+  | InjectSummaryMessage;
 

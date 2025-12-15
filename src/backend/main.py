@@ -13,6 +13,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import websockets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -25,8 +26,12 @@ from google.genai import types as genai_types
 
 import slidekick.config as config
 from slidekick import AudioProcessor, SlideTools, StateManager, ToolExecutor
+from slidekick.content_processor import ContentProcessor
 
 logger = logging.getLogger(__name__)
+
+# Store latest summary in memory (for hackathon demo simplicity)
+LATEST_SLIDE_SUMMARY = None
 
 
 # =============================================================================
@@ -131,15 +136,41 @@ def create_session_components() -> tuple[ToolExecutor, StateManager, SlideTools]
         ),
     )
 
+    # Register trigger_summary tool
+    executor.register_tool(
+        "trigger_summary",
+        tools.trigger_summary,
+        genai_types.FunctionDeclaration(
+            name="trigger_summary",
+            description="Trigger the background generation of a presentation summary.",
+            parameters=genai_types.Schema(
+                type=genai_types.Type.OBJECT,
+                properties={
+                    "conversational_context": genai_types.Schema(
+                        type=genai_types.Type.STRING,
+                        description="A detailed summary of what the SPEAKER has said during the presentation so far. Be comprehensive.",
+                    ),
+                },
+                required=["conversational_context"],
+            ),
+        ),
+    )
+
     return executor, state, tools
 
 
-def create_gemini_config(executor: ToolExecutor) -> genai_types.LiveConnectConfig:
+def create_gemini_config(executor: ToolExecutor, slide_summary: str | None = None) -> genai_types.LiveConnectConfig:
     """Create Gemini Live API configuration with tools."""
+    
+    system_instruction = config.GEMINI_LIVE_SYSTEM_INSTRUCTION
+    if slide_summary:
+        system_instruction += f"\n\nCONTEXT: Slide Summary\n{slide_summary}"
+        logger.info("Injected slide summary into system instruction")
+        
     return genai_types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         tools=[genai_types.Tool(function_declarations=executor.tools)],
-        system_instruction=config.GEMINI_LIVE_SYSTEM_INSTRUCTION,
+        system_instruction=system_instruction,
     )
 
 
@@ -175,7 +206,7 @@ async def upload_slides(file: UploadFile = File(...)):
             
 
         # Run reveal-md to generate static site
-        command = ["npx", "reveal-md", str(file_path), "--static", temp_dir]
+        command = ["npx", "-y", "reveal-md", str(file_path), "--static", temp_dir]
         result = subprocess.run(command, capture_output=True, text=True, check=True)
 
         logger.debug(f"reveal-md stdout: {result.stdout}")
@@ -184,6 +215,20 @@ async def upload_slides(file: UploadFile = File(...)):
 
         relative_path = Path(temp_dir).name
         logger.info(f"Conversion complete: {relative_path}")
+        
+        # Generate AI summary of slides
+        logger.info("Processing slides for AI summary...")
+        try:
+            processor = ContentProcessor()
+            # Use the original markdown file for summary generation
+            summary = await processor.process_slides(file_path) 
+            
+            # Store in global variable for new sessions
+            global LATEST_SLIDE_SUMMARY
+            LATEST_SLIDE_SUMMARY = summary
+            logger.info(f"Slide summary generated ({len(summary)} chars)")
+        except Exception as e:
+            logger.error(f"Summary generation failed: {e}")
         
         return {"status": "success", "url": f"/slides/{relative_path}/index.html"}
 
@@ -215,7 +260,8 @@ async def websocket_endpoint(
     executor, state_manager, slide_tools = create_session_components()
     await state_manager.set_session_id(session_id)
     
-    gemini_config = create_gemini_config(executor)
+    # Inject latest summary if available
+    gemini_config = create_gemini_config(executor, slide_summary=LATEST_SLIDE_SUMMARY)
 
     # Create audio processor for WebSocket audio
     audio_processor = AudioProcessor.from_websocket()
@@ -223,6 +269,8 @@ async def websocket_endpoint(
 
     # Shared state
     is_connected = True
+    allow_interruption = asyncio.Event()
+    allow_interruption.set()
 
     # -------------------------------------------------------------------------
     # Helper Functions
@@ -298,6 +346,13 @@ async def websocket_endpoint(
         except WebSocketDisconnect:
             logger.info("WebSocket disconnected", extra={"session_id": session_id})
             is_connected = False
+        except RuntimeError as e:
+            if "Cannot call \"receive\" once a disconnect message has been received" in str(e):
+                logger.info("WebSocket connection closed during receive", extra={"session_id": session_id})
+                is_connected = False
+            else:
+                logger.exception(f"RuntimeError receiving data: {e}", extra={"session_id": session_id})
+                is_connected = False
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -309,6 +364,11 @@ async def websocket_endpoint(
         nonlocal is_connected
         try:
             while is_connected:
+                # Wait if interruption is not allowed (e.g. during tool execution)
+                if not allow_interruption.is_set():
+                     logger.debug("Audio forwarding paused (Gate Closed)", extra={"session_id": session_id})
+                await allow_interruption.wait()
+
                 try:
                     audio_msg = await asyncio.wait_for(
                         audio_processor.get_audio(),
@@ -321,8 +381,8 @@ async def websocket_endpoint(
             raise
         except Exception as e:
             error_str = str(e).lower()
-            if "1011" in error_str or "closed" in error_str:
-                logger.info("Gemini connection closed", extra={"session_id": session_id})
+            if "1011" in error_str or "closed" in error_str or "1008" in error_str:
+                logger.info(f"Gemini connection closed: {e}", extra={"session_id": session_id})
             else:
                 logger.exception(f"Audio forward error: {e}", extra={"session_id": session_id})
             is_connected = False
@@ -335,6 +395,7 @@ async def websocket_endpoint(
             while is_connected:
                 try:
                     turn = session.receive()
+
                     async for response in turn:
                         if not is_connected:
                             break
@@ -347,13 +408,16 @@ async def websocket_endpoint(
                         if hasattr(response, "data") and response.data:
                             await safe_send_bytes(response.data)
 
-                        # Log text responses
+                        # Log text responses and capture transcript
                         if response.server_content and response.server_content.model_turn:
                             for part in response.server_content.model_turn.parts:
                                 if hasattr(part, "text") and part.text:
                                     text = part.text.strip()
                                     if text:
                                         logger.info(f"Gemini: {text[:100]}...", extra={"session_id": session_id})
+                                        # Buffer transcript for summary generation
+                                        await state_manager.add_transcript(text)
+                                        
                                         await safe_send_json({
                                             "type": "transcript",
                                             "text": text,
@@ -363,10 +427,13 @@ async def websocket_endpoint(
                     raise
                 except Exception as e:
                     error_str = str(e).lower()
-                    if "1011" in error_str or "closed" in error_str:
+                    if "1011" in error_str or "closed" in error_str or "1008" in error_str:
+                        logger.warning(f"Connection closed (likely interruption): {e}", extra={"session_id": session_id})
                         break
                     logger.exception(f"Response error: {e}", extra={"session_id": session_id})
                     await asyncio.sleep(0.1)
+                
+                # Finally block removed as we are not toggling allow_interruption here anymore
 
         except asyncio.CancelledError:
             pass
@@ -375,63 +442,132 @@ async def websocket_endpoint(
         finally:
             is_connected = False
 
+    async def run_background_summary(context_from_live_session: str = ""):
+        """Backend task to generate and inject summary asynchronously."""
+        try:
+            logger.info("Starting background summary generation...", extra={"session_id": session_id})
+            
+            # Combine sourced transcripts. 
+            # If we have live context, it's prioritized as it contains the "hearing" of the model.
+            transcript_buffer = await state_manager.get_transcript()
+            
+            full_transcript_context = f"""
+            [Live Model Memory (Speaker's Words)]:
+            {context_from_live_session}
+            
+            [System Log (AI Responses)]:
+            {transcript_buffer}
+            """
+            
+            slide_context = LATEST_SLIDE_SUMMARY or "No slide content available."
+            
+            # Create a fresh processor instance
+            processor = ContentProcessor()
+            summary_text = await processor.generate_presentation_summary(full_transcript_context, slide_context)
+            
+            if not summary_text or "Error" in summary_text:
+                logger.warning("Summary generation returned empty or error", extra={"session_id": session_id})
+                return
+
+            # Use slide_tools to format the injection payload
+            # We call inject_summary which returns the command dict (including HTML)
+            injection_result = await slide_tools.inject_summary(summary_text)
+            
+            if injection_result.get("success"):
+                 html_content = injection_result.get("html", "")
+                 logger.info("Background summary ready, injecting...", extra={"session_id": session_id})
+                 
+                 await safe_send_json({
+                    "type": "inject_summary",
+                    "html": html_content,
+                    "summary": summary_text,
+                })
+            else:
+                logger.error(f"Injection formatting failed: {injection_result.get('error')}", extra={"session_id": session_id})
+
+        except Exception as e:
+            logger.error(f"Background summary task failed: {e}", extra={"session_id": session_id})
+
     async def process_tool_calls(tool_call):
         """Process tool calls from Gemini."""
-        logger.info("Tool call detected", extra={"session_id": session_id})
+        # Pause audio transmission during tool execution to prevent interruptions
+        allow_interruption.clear()
+        
+        try:
+            logger.info("Tool call detected", extra={"session_id": session_id})
 
-        function_responses = []
-        if hasattr(tool_call, "function_calls"):
-            for fc in tool_call.function_calls:
-                name = fc.name
-                args = dict(fc.args) if hasattr(fc, "args") and fc.args else {}
+            function_responses = []
+            if hasattr(tool_call, "function_calls"):
+                for fc in tool_call.function_calls:
+                    name = fc.name
+                    args = dict(fc.args) if hasattr(fc, "args") and fc.args else {}
 
-                logger.info(f"Executing: {name}({json.dumps(args)})", extra={"session_id": session_id})
+                    logger.info(f"Executing: {name}({json.dumps(args)})", extra={"session_id": session_id})
 
-                # Notify frontend of detected intent
-                await safe_send_json({
-                    "type": "intent_detected",
-                    "tool": name,
-                    "args": args,
-                })
+                    # Notify frontend of detected intent
+                    await safe_send_json({
+                        "type": "intent_detected",
+                        "tool": name,
+                        "args": args,
+                    })
 
-                # Execute the tool
-                result = await executor.execute_tool(name, fc.id, args)
-                function_responses.append(result)
+                    # Execute the tool
+                    result = await executor.execute_tool(name, fc.id, args)
+                    function_responses.append(result)
 
-                # Send result to frontend
-                try:
-                    res_data = result.response.get("data", {})
-                    status = result.response.get("status", "unknown")
+                    # Send result to frontend
+                    try:
+                        res_data = result.response.get("data", {})
+                        status = result.response.get("status", "unknown")
 
-                    if name == "navigate_slide":
-                        current_slide = res_data.get("current_slide", 0)
-                        direction = args.get("direction", "unknown")
+                        if name == "navigate_slide":
+                            current_slide = res_data.get("current_slide", 0)
+                            direction = args.get("direction", "unknown")
 
-                        logger.info(
-                            f"✓ {direction} -> Slide {current_slide + 1}", extra={"session_id": session_id}
-                        )
+                            logger.info(
+                                f"✓ {direction} -> Slide {current_slide + 1}", extra={"session_id": session_id}
+                            )
 
-                        await safe_send_json({
-                            "type": "slide_command",
-                            "action": direction,
-                            "slide_index": current_slide,
-                            "status": status,
-                        })
-                    else:
-                        logger.info(f"✓ {name}: {status}", extra={"session_id": session_id})
-                        await safe_send_json({
-                            "type": "tool_result",
-                            "tool": name,
-                            "status": status,
-                            "data": res_data,
-                        })
-                except Exception as e:
-                    logger.warning(f"Error processing result: {e}", extra={"session_id": session_id})
+                            await safe_send_json({
+                                "type": "slide_command",
+                                "action": direction,
+                                "slide_index": current_slide,
+                                "status": status,
+                            })
+                        elif name == "trigger_summary" or res_data.get("action") == "start_background_summary":
+                            logger.info(f"✓ Summary Triggered (Async)", extra={"session_id": session_id})
+                            
+                            # Extract context from tool args via the result data (since we passed it through)
+                            context = res_data.get("conversational_context", "")
+                            
+                            # Launch background task with the context
+                            asyncio.create_task(run_background_summary(context))
+                            
+                            await safe_send_json({
+                                "type": "tool_result",
+                                "tool": name,
+                                "status": status,
+                                "data": res_data,
+                            })
+                        else:
+                            logger.info(f"✓ {name}: {status}", extra={"session_id": session_id})
+                            await safe_send_json({
+                                "type": "tool_result",
+                                "tool": name,
+                                "status": status,
+                                "data": res_data,
+                            })
+                    except Exception as e:
+                        logger.warning(f"Error processing result: {e}", extra={"session_id": session_id})
 
-        # Send tool responses back to Gemini
-        if function_responses:
-            await session.send_tool_response(function_responses=function_responses)
-            logger.debug(f"Sent {len(function_responses)} tool response(s)", extra={"session_id": session_id})
+            # Send tool responses back to Gemini
+            if function_responses:
+                await session.send_tool_response(function_responses=function_responses)
+                logger.debug(f"Sent {len(function_responses)} tool response(s)", extra={"session_id": session_id})
+        
+        finally:
+            # Resume audio transmission
+            allow_interruption.set()
 
     # -------------------------------------------------------------------------
     # Main Session Loop

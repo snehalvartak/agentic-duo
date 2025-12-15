@@ -6,11 +6,11 @@ Implements slide deck-specific tools for the agentic slide presentation system.
 Tools provided:
 - navigate_slide: Navigate between slides
 - get_presentation_context: Get current state
+- inject_summary: Inject summary slide
 
 Future tools (to be implemented):
 - inject_image: Generate and inject images via Imagen API
 - add_content: Add text/bullet points
-- generate_summary: Create summary from transcript
 """
 
 import logging
@@ -97,3 +97,53 @@ class SlideTools:
                 "success": False,
                 "error": str(e),
             }
+
+    async def inject_summary(self, summary_text: str) -> dict[str, Any]:
+        """
+        Inject a summary slide into the presentation.
+        
+        Args:
+            summary_text: The text content to display in the summary.
+            
+        Returns:
+            Dict with injection command.
+        """
+        try:
+            logger.info(f"Injecting summary: {summary_text[:50]}...")
+            
+            # Simple HTML formatting using a Reveal.js compatible structure
+            html_content = f"""
+            <h2>Presentation Summary</h2>
+            <div class="summary-content" style="text-align: left; font-size: 0.8em;">
+{summary_text}
+            </div>
+            """
+            
+            return {
+                "action": "inject_summary",
+                "summary": summary_text,
+                "html": html_content,
+                "success": True
+            }
+        except Exception as e:
+            logger.error(f"Inject summary failed: {e}")
+            return {
+                "action": "inject_summary",
+                "success": False,
+                "error": str(e)
+            }
+
+    async def trigger_summary(self, conversational_context: str = "") -> dict[str, Any]:
+        """
+        Trigger the background summary generation process.
+        
+        Args:
+            conversational_context: Notes from the live model about what the speaker said.
+        """
+        logger.info("Triggering background summary generation")
+        return {
+            "action": "start_background_summary",
+            "conversational_context": conversational_context,
+            "success": True,
+            "message": "Summary generation started in background."
+        }
